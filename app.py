@@ -1,183 +1,112 @@
+
 import streamlit as st
 import pandas as pd
 import os
 import random
 import string
-import altair as alt
+from datetime import datetime
 
-# ---------------------------- CONFIG ---------------------------- #
+# --- Initialize ---
 st.set_page_config(page_title="Mentee Tracker", layout="wide")
 
-DATA_DIR = "data"
-STUDENT_DB = "students.csv"
-ADMIN_PASS = "mentor123"
+# Create data folder if it doesn't exist
+if not os.path.exists("data"):
+    os.makedirs("data")
 
-grade_point_map = {
-    "O": 10,
-    "A+": 9,
-    "A": 8,
-    "B+": 7,
-    "B": 6,
-    "C+": 5,
-    "C": 4,
-    "PP": 3
-}
+# --- Access Key Logic (simplified) ---
+def generate_access_key():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
-# ---------------------------- UTILITIES ---------------------------- #
-def generate_key(length=6):
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+def get_user_key(email_or_phone):
+    key_file = "data/access_keys.csv"
+    if not os.path.exists(key_file):
+        df = pd.DataFrame(columns=["user", "key"])
+        df.to_csv(key_file, index=False)
+    df = pd.read_csv(key_file)
+    if email_or_phone in df["user"].values:
+        return df[df["user"] == email_or_phone]["key"].values[0]
+    else:
+        new_key = generate_access_key()
+        new_row = pd.DataFrame([{"user": email_or_phone, "key": new_key}])
+        new_row.to_csv(key_file, mode="a", header=False, index=False)
+        return new_key
 
-def get_user_file(access_key, section):
-    return os.path.join(DATA_DIR, f"{access_key}_{section}.csv")
-
-def init_student_db():
-    if not os.path.exists(STUDENT_DB):
-        df = pd.DataFrame(columns=["email", "phone", "access_key"])
-        df.to_csv(STUDENT_DB, index=False)
-
-def load_student(access_key):
-    return pd.read_csv(STUDENT_DB).query("access_key == @access_key")
-
-def load_data(file):
-    if os.path.exists(file):
-        return pd.read_csv(file)
-    return pd.DataFrame()
-
-# ---------------------------- AUTH ---------------------------- #
+# --- Login Page ---
 st.title("🔐 Mentee Tracker System")
 
-init_student_db()
+role = st.radio("Login as", ["Student", "Mentor"], horizontal=True)
 
-auth_type = st.radio("Login as", ["Student", "Mentor"])
+email = st.text_input("📧 Enter Email")
+phone = st.text_input("📱 Enter Phone Number")
 
-if auth_type == "Student":
-    col1, col2 = st.columns(2)
-    with col1:
-        email = st.text_input("📧 Enter Email")
-    with col2:
-        phone = st.text_input("📱 Enter Phone Number")
+if email or phone:
+    user_identifier = email if email else phone
+    access_key = get_user_key(user_identifier)
+    st.info(f"Your Access Key: `{access_key}` (for demo purpose shown here)")
 
-    if st.button("Get Access Key"):
-        if email and phone:
-            students = pd.read_csv(STUDENT_DB)
-            existing = students[(students['email'] == email) | (students['phone'] == phone)]
-            if not existing.empty:
-                access_key = existing.iloc[0]['access_key']
-                st.success(f"Welcome back! Your Access Key: `{access_key}`")
-            else:
-                access_key = generate_key()
-                students.loc[len(students.index)] = [email, phone, access_key]
-                students.to_csv(STUDENT_DB, index=False)
-                st.success(f"New Access Key Generated: `{access_key}`")
-    access_key_input = st.text_input("Enter your Access Key to Continue")
+user_key_input = st.text_input("🔑 Enter your Access Key to Continue", type="password")
 
-    if access_key_input and access_key_input in pd.read_csv(STUDENT_DB)['access_key'].values:
-        st.success("Login successful ✅")
-        tabs = st.tabs(["🎓 Marks", "📅 Meetings", "🏆 Activity Points"])
+if user_key_input == access_key:
+    st.success("Login successful ✅")
 
-        # ------------ MARKS SECTION ------------ #
-        with tabs[0]:
-            st.header("🎓 Academic Marks Entry")
-            subject = st.text_input("Subject Name")
-            mse1 = st.number_input("MSE 1", 0, 50)
-            mse2 = st.number_input("MSE 2", 0, 50)
-            cie = mse1 + mse2
-            see = st.number_input("SEE", 0, 100)
-            task = st.number_input("Task", 0, 10)
-            grade = st.selectbox("Grade", list(grade_point_map.keys()))
-            credits = st.number_input("Credits", 1, 5)
+    tab1, tab2, tab3 = st.tabs(["🎓 Marks", "📅 Meetings", "🏆 Activity Points"])
 
-            if st.button("Save Subject Marks"):
-                marks_file = get_user_file(access_key_input, "marks")
-                total_marks = cie + see + task
-                new_entry = pd.DataFrame([{
-                    "Subject": subject,
-                    "MSE1": mse1,
-                    "MSE2": mse2,
-                    "CIE": cie,
-                    "SEE": see,
-                    "Task": task,
-                    "Grade": grade,
-                    "Grade Point": grade_point_map[grade],
-                    "Credits": credits,
-                    "Total Marks": total_marks
-                }])
-                file_exists = os.path.exists(marks_file)
-                new_entry.to_csv(marks_file, mode="a", index=False, header=not file_exists)
-                st.success("Marks saved!")
+    # -------------- MARKS TAB ----------------
+    with tab1:
+        st.header("🎓 Academic Marks Entry")
 
-            # Show marks + CGPA
-            marks_file = get_user_file(access_key_input, "marks")
-            df = load_data(marks_file)
-            if not df.empty:
-                st.subheader("📊 Your Subjects and CGPA")
-                st.dataframe(df)
-                total_credits = df['Credits'].sum()
-                weighted_sum = (df['Credits'] * df['Grade Point']).sum()
-                cgpa = weighted_sum / total_credits if total_credits else 0
-                st.success(f"🎯 Your CGPA: **{round(cgpa, 2)}**")
+        # 🆕 Semester Dropdown
+        semester = st.selectbox("📚 Select Semester", 
+                                ["1st Sem", "2nd Sem", "3rd Sem", "4th Sem", 
+                                 "5th Sem", "6th Sem", "7th Sem", "8th Sem"])
 
-                chart = alt.Chart(df).mark_bar().encode(
-                    x='Subject', y='Total Marks', color='Grade'
-                )
-                st.altair_chart(chart, use_container_width=True)
+        subject_count = st.number_input("Number of Subjects", min_value=1, max_value=12, value=4)
 
-        # ------------ MEETING SECTION ------------ #
-        with tabs[1]:
-            st.header("📅 Mentor Meeting Log")
-            meet_date = st.date_input("Meeting Date")
-            discussion = st.text_area("What was discussed?")
+        data = []
+        grades = ["O", "A+", "A", "B+", "B", "C+", "C", "PP"]
+        total_credits = 0
+        weighted_score = 0
 
-            if st.button("Save Meeting Log"):
-                meet_file = get_user_file(access_key_input, "meetings")
-                new_entry = pd.DataFrame([{
-                    "Date": meet_date,
-                    "Discussion": discussion
-                }])
-                file_exists = os.path.exists(meet_file)
-                new_entry.to_csv(meet_file, mode="a", index=False, header=not file_exists)
-                st.success("Meeting details saved!")
+        for i in range(int(subject_count)):
+            st.subheader(f"Subject {i+1}")
+            subject = st.text_input(f"Subject Name {i+1}", key=f"sub{i}")
+            mse1 = st.number_input(f"MSE 1 - {subject}", min_value=0, max_value=50, key=f"mse1{i}")
+            mse2 = st.number_input(f"MSE 2 - {subject}", min_value=0, max_value=50, key=f"mse2{i}")
+            see = st.number_input(f"SEE - {subject}", min_value=0, max_value=100, key=f"see{i}")
+            task = st.number_input(f"Task - {subject}", min_value=0, max_value=20, key=f"task{i}")
+            grade = st.selectbox(f"Grade - {subject}", grades, key=f"grade{i}")
+            credit = st.number_input(f"Credits - {subject}", min_value=1, max_value=5, key=f"credit{i}")
 
-        # ------------ ACTIVITY SECTION ------------ #
-        with tabs[2]:
-            st.header("🏆 Activity Points & Certificates")
-            activity = st.text_input("Activity Name")
-            drive_link = st.text_input("Google Drive Certificate Link")
+            # Grade to point mapping
+            grade_map = {
+                "O": 10, "A+": 9, "A": 8, "B+": 7,
+                "B": 6, "C+": 5, "C": 4, "PP": 0
+            }
+            grade_point = grade_map.get(grade, 0)
+            weighted_score += grade_point * credit
+            total_credits += credit
 
-            if st.button("Save Activity"):
-                act_file = get_user_file(access_key_input, "activities")
-                new_entry = pd.DataFrame([{
-                    "Activity": activity,
-                    "Certificate": drive_link
-                }])
-                file_exists = os.path.exists(act_file)
-                new_entry.to_csv(act_file, mode="a", index=False, header=not file_exists)
-                st.success("Activity saved!")
+            data.append({
+                "Email/Phone": user_identifier,
+                "Semester": semester,
+                "Subject": subject,
+                "MSE1": mse1,
+                "MSE2": mse2,
+                "SEE": see,
+                "Task": task,
+                "Grade": grade,
+                "Credits": credit
+            })
 
-elif auth_type == "Mentor":
-    password = st.text_input("Enter Mentor Password", type="password")
-    if password == ADMIN_PASS:
-        st.success("Admin access granted ✅")
-        students = pd.read_csv(STUDENT_DB)
-        selected_key = st.selectbox("Select Student Access Key", students['access_key'])
+        # Save data
+        if st.button("💾 Save Marks"):
+            df = pd.DataFrame(data)
+            sem_filename = f"data/marks_{user_identifier}_{semester.replace(' ', '_')}.csv"
+            file_exists = os.path.exists(sem_filename)
+            df.to_csv(sem_filename, mode="a", index=False, header=not file_exists)
+            st.success("Marks saved for this semester 🎉")
 
-        tabs = st.tabs(["🎓 Marks", "📅 Meetings", "🏆 Activities"])
-        with tabs[0]:
-            st.header(f"Marks for {selected_key}")
-            df = load_data(get_user_file(selected_key, "marks"))
-            if not df.empty:
-                st.dataframe(df)
-                total_credits = df['Credits'].sum()
-                weighted_sum = (df['Credits'] * df['Grade Point']).sum()
-                cgpa = weighted_sum / total_credits if total_credits else 0
-                st.success(f"CGPA: {round(cgpa, 2)}")
-        with tabs[1]:
-            st.header(f"Meetings for {selected_key}")
-            df = load_data(get_user_file(selected_key, "meetings"))
-            st.dataframe(df if not df.empty else pd.DataFrame(columns=["Date", "Discussion"]))
-        with tabs[2]:
-            st.header(f"Activities for {selected_key}")
-            df = load_data(get_user_file(selected_key, "activities"))
-            st.dataframe(df if not df.empty else pd.DataFrame(columns=["Activity", "Certificate"]))
-    elif password != "":
-        st.error("❌ Incorrect password.")
+        # CGPA Calculation
+        if total_credits > 0:
+            cgpa = round(weighted_score / total_credits, 2)
+            st.info(f"🎯 CGPA for {semester}: **{cgpa}**")
