@@ -42,7 +42,7 @@ phone = st.text_input("📱 Enter Phone Number")
 if email or phone:
     user_identifier = email if email else phone
     access_key = get_user_key(user_identifier)
-    st.info(f"Your Access Key: `{access_key}` (for demo purpose shown here)")
+    st.info(f"Your Access Key: `{access_key}`")
 
 user_key_input = st.text_input("🔑 Enter your Access Key to Continue", type="password")
 
